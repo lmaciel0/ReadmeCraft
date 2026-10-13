@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design system "Modern Obsidian": tokens semânticos trocados por tema. */
+:root,
+.light {
+  --rc-bg: #f5f6fa;
+  --rc-surface: #ffffff;
+  --rc-surface-2: #eff1f6;
+  --rc-surface-3: #e6e9f0;
+  --rc-border: #dde1ea;
+  --rc-text: #10131a;
+  --rc-muted: #5a6274;
+  --rc-accent: #6a4cff;
+  --rc-accent-2: #0891b2;
+  --rc-accent-soft: rgb(106 76 255 / 0.1);
+  --rc-success: #1a7f37;
+  --rc-warning: #9a6700;
+  --rc-danger: #cf222e;
+  --rc-ring: rgb(106 76 255 / 0.45);
+}
+
+.dark {
+  --rc-bg: #0a0c11;
+  --rc-surface: #10131a;
+  --rc-surface-2: #161a23;
+  --rc-surface-3: #1e2330;
+  --rc-border: #252b3a;
+  --rc-text: #e7eaf0;
+  --rc-muted: #8d95a8;
+  --rc-accent: #8b6cff;
+  --rc-accent-2: #22d3ee;
+  --rc-accent-soft: rgb(139 108 255 / 0.14);
+  --rc-success: #3fb950;
+  --rc-warning: #d29922;
+  --rc-danger: #f85149;
+  --rc-ring: rgb(139 108 255 / 0.55);
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-bg: var(--rc-bg);
+  --color-surface: var(--rc-surface);
+  --color-surface-2: var(--rc-surface-2);
+  --color-surface-3: var(--rc-surface-3);
+  --color-line: var(--rc-border);
+  --color-fg: var(--rc-text);
+  --color-muted: var(--rc-muted);
+  --color-accent: var(--rc-accent);
+  --color-accent-2: var(--rc-accent-2);
+  --color-accent-soft: var(--rc-accent-soft);
+  --color-success: var(--rc-success);
+  --color-warning: var(--rc-warning);
+  --color-danger: var(--rc-danger);
+  --color-ring: var(--rc-ring);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--rc-bg);
+  color: var(--rc-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--rc-ring);
+  outline-offset: 2px;
+}
+
+/* Scrollbars discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rc-surface-3) transparent;
+}
+
+/* Preview: o CSS do GitHub é injetado por tema (ver MarkdownPreview). */
+.markdown-body {
+  background: transparent !important;
+  font-size: 15px;
+}
+/* Desfaz o preflight do Tailwind dentro do preview para ficar idêntico ao GitHub. */
+.markdown-body img,
+.markdown-body svg,
+.markdown-body video {
+  display: inline;
+  vertical-align: middle;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body ul ul,
+.markdown-body ol ul {
+  list-style: circle;
+}
+.markdown-body ul ul ul {
+  list-style: square;
+}
+.markdown-body li.task-list-item {
+  list-style: none;
+}
+.markdown-body .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Alerts do GitHub (> [!NOTE]) */
+.markdown-body .markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  border-left: 0.25em solid var(--alert-color);
+  color: inherit;
+}
+.markdown-body .markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+.markdown-body .markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--alert-color);
+  margin-bottom: 4px;
+}
+.markdown-body .markdown-alert-note { --alert-color: #4493f8; }
+.markdown-body .markdown-alert-tip { --alert-color: #3fb950; }
+.markdown-body .markdown-alert-important { --alert-color: #ab7df8; }
+.markdown-body .markdown-alert-warning { --alert-color: #d29922; }
+.markdown-body .markdown-alert-caution { --alert-color: #f85149; }
+
+@keyframes rc-blink {
+  50% { opacity: 0; }
+}
+.rc-caret::after {
+  content: "▍";
+  margin-left: 2px;
+  color: var(--rc-accent);
+  animation: rc-blink 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
