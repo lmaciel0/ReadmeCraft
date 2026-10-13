@@ -7,6 +7,8 @@ import { SectionManager, type EditableOptions } from "./components/editor/Sectio
 import { Toolbar } from "./components/editor/Toolbar";
 import { Header } from "./components/layout/Header";
 import { HistoryPanel } from "./components/editor/HistoryPanel";
+import { PublishDialog } from "./components/editor/PublishDialog";
+import { AccountMenu } from "./components/layout/AccountMenu";
 import { BadgeGallery } from "./components/preview/BadgeGallery";
 import { BannerStudio } from "./components/preview/BannerStudio";
 import { MarkdownPreview } from "./components/preview/MarkdownPreview";
@@ -14,6 +16,7 @@ import { RepoInput } from "./components/repository/RepoInput";
 import { TechStackDetector } from "./components/repository/TechStackDetector";
 import { useGithubRepo } from "./hooks/useGithubRepo";
 import { useHealth } from "./hooks/useHealth";
+import { useAuth } from "./hooks/useAuth";
 import { useHistory } from "./hooks/useHistory";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useReadmeGenerator } from "./hooks/useReadmeGenerator";
@@ -23,7 +26,7 @@ import { arrowNav, rovingTabIndex } from "./lib/a11y";
 import { cn } from "./lib/cn";
 import { listSectionIds } from "./lib/sections";
 import { BANNER_PATH, bannerMarkdown, svgDataUrl } from "./services/bannerGenerator";
-import type { HistoryEntry } from "./services/historyStore";
+import { createRemoteHistory, type HistoryEntry } from "./services/historyStore";
 import type { GeneratorEngine } from "./types/readme";
 import type { SectionId, TemplateId } from "./types/template";
 
@@ -46,15 +49,20 @@ export default function App() {
   const [options, setOptions] = useLocalStorage<EditableOptions>("rc:options", DEFAULT_OPTIONS);
   const [markdown, setMarkdown] = useLocalStorage("rc:draft", "", { debounceMs: 500 });
   const [view, setView] = useState<View>("split");
-  const [modal, setModal] = useState<"badges" | "banner" | "history" | null>(null);
+  const [modal, setModal] = useState<"badges" | "banner" | "history" | "publish" | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [bannerSvg, setBannerSvg] = useLocalStorage<string | null>("rc:banner", null);
-  const history = useHistory();
+  const features = health.status === "online" ? health.health.features : { login: false, history: false };
+  const auth = useAuth(features.login);
+  const signedIn = auth.state.status === "authenticated";
+  // Logado e com Supabase configurado: histórico na conta; senão, no navegador.
+  const remoteHistory = useMemo(() => (signedIn && features.history ? createRemoteHistory() : null), [signedIn, features.history]);
+  const history = useHistory(remoteHistory);
   const repoState = repo.state;
   const onComplete = useCallback(
     (text: string, engine: GeneratorEngine) => {
       const meta = repoState.status === "success" ? repoState.metadata : null;
-      history.save({ title: meta?.name ?? "README", repo: meta?.fullName, template: options.template, origin: engine, markdown: text });
+      void history.save({ title: meta?.name ?? "README", repo: meta?.fullName, template: options.template, origin: engine, markdown: text });
     },
     [history, repoState, options.template],
   );
@@ -69,6 +77,17 @@ export default function App() {
   const aiEnabled = health.status === "online" && health.health.ai;
   const canGenerate = Boolean(metadata) && health.status !== "offline";
   const streaming = generator.isStreaming;
+
+  useEffect(() => {
+    // Erro devolvido pelo callback do OAuth (?auth_error=...): avisa e limpa a URL.
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("auth_error");
+    if (!authError) return;
+    params.delete("auth_error");
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
+    const messages: Record<string, string> = { denied: "Login com o GitHub cancelado.", state: "Login expirado ou inválido. Tente de novo." };
+    queueMicrotask(() => setToast(messages[authError] ?? "Não foi possível entrar com o GitHub."));
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -107,16 +126,13 @@ export default function App() {
     setToast(`Banner inserido. Salve o arquivo baixado em ${BANNER_PATH.slice(2)}.`);
   };
 
-  const saveCurrent = () =>
-    setToast(
-      history.save({ title: metadata?.name ?? "README", repo: metadata?.fullName, template: options.template, origin: "manual", markdown })
-        ? "Versão salva no histórico."
-        : "Esta versão já está salva.",
-    );
+  const currentVersion = () => ({ title: metadata?.name ?? "README", repo: metadata?.fullName, template: options.template, origin: "manual" as const, markdown });
 
-  const restore = (entry: HistoryEntry) => {
+  const saveCurrent = async () => setToast((await history.save(currentVersion())) ? "Versão salva no histórico." : "Esta versão já está salva.");
+
+  const restore = async (entry: HistoryEntry) => {
     // Guarda o estado atual antes de sobrescrever, para a restauração ser reversível.
-    history.save({ title: metadata?.name ?? "README", repo: metadata?.fullName, template: options.template, origin: "manual", markdown });
+    await history.save(currentVersion());
     setMarkdown(entry.markdown);
     setModal(null);
     setToast("Versão restaurada. A versão anterior foi salva no histórico.");
@@ -129,7 +145,14 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <Header template={options.template} onTemplateChange={changeTemplate} health={health} theme={theme} onToggleTheme={toggleTheme} />
+      <Header
+        template={options.template}
+        onTemplateChange={changeTemplate}
+        health={health}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        account={features.login ? <AccountMenu state={auth.state} onLogin={auth.login} onLogout={() => void auth.logout()} /> : null}
+      />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="shrink-0 space-y-4 overflow-y-auto border-line p-4 lg:w-[360px] lg:border-r" aria-label="Configuração">
@@ -195,6 +218,7 @@ export default function App() {
               onOpenBadges={() => setModal("badges")}
               onOpenBanner={() => setModal("banner")}
               onOpenHistory={() => setModal("history")}
+              onOpenPublish={features.login ? () => setModal("publish") : undefined}
               onNotify={setToast}
             />
           </div>
@@ -264,13 +288,18 @@ export default function App() {
       </Modal>
       <Modal open={modal === "history"} onClose={() => setModal(null)} title="Histórico de versões">
         <HistoryPanel
+          remote={Boolean(remoteHistory)}
+          error={history.error}
           entries={history.entries}
           canSaveCurrent={Boolean(markdown.trim())}
-          onSaveCurrent={saveCurrent}
-          onRestore={restore}
-          onRemove={history.remove}
-          onClear={history.clear}
+          onSaveCurrent={() => void saveCurrent()}
+          onRestore={(e) => void restore(e)}
+          onRemove={(id) => void history.remove(id)}
+          onClear={() => void history.clear()}
         />
+      </Modal>
+      <Modal open={modal === "publish"} onClose={() => setModal(null)} title="Publicar no GitHub">
+        <PublishDialog key={metadata?.fullName ?? "manual"} auth={auth.state} onLogin={auth.login} defaultRepo={metadata?.fullName} markdown={markdown} bannerSvg={bannerSvg} />
       </Modal>
 
       {/* Região viva sempre montada: leitores de tela anunciam a troca de texto. */}

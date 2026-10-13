@@ -30,6 +30,8 @@
 - **Gerador de banner**: SVG autocontido em 4 estilos (título, tagline e tecnologias), baixado como `banner.svg` e inserido no topo do README. O preview já mostra o banner antes do commit.
 - **Histórico de versões**: cada geração concluída é salva no navegador (até 20 versões), com restaurar, baixar e excluir. A restauração guarda a versão atual antes, então é reversível.
 - **Exportação**: copiar Markdown ou baixar `README.md`. O rascunho fica salvo localmente.
+- **Publicar no GitHub**: com login via GitHub OAuth, o ReadmeCraft cria uma branch e abre um Pull Request com o `README.md` (e o banner) no seu repositório. Nunca grava direto na branch padrão.
+- **Histórico na conta**: logado, as versões ficam no Supabase (até 50 por usuário) em vez do navegador.
 
 ## 🏗️ Arquitetura
 
@@ -85,9 +87,20 @@ Acesse http://localhost:5173.
 | `PORT` | Porta da API (padrão `8787`). | Não |
 | `TRUST_PROXY` | `1` para usar `X-Forwarded-For` no rate limit (apenas atrás de proxy confiável). | Não |
 | `GENERATE_DAILY_LIMIT` | Orçamento global de gerações por dia (padrão `500`). | Não |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | OAuth App do GitHub para login e publicação via PR. | Não |
+| `APP_URL` | URL pública do app; define o callback do OAuth (`<APP_URL>/api/auth/callback`). | Com login |
+| `SESSION_SECRET` | Segredo (32+ caracteres) que cifra o cookie de sessão. | Com login |
+| `SUPABASE_URL` / `SUPABASE_SECRET_KEY` | Histórico de versões na conta do usuário. | Não |
 
 > [!IMPORTANT]
 > Nunca exponha as chaves no frontend. Toda chamada ao Claude e ao GitHub passa pelo backend.
+
+## ☁️ Deploy na Vercel
+
+`npm run build:vercel` gera `.vercel/output` (Build Output API v3): o frontend estático vai para a CDN e a API vira uma única Node Function, empacotada com esbuild. O `vercel.json` já aponta para esse build. Basta importar o repositório na Vercel e configurar as variáveis de ambiente. Sem `ANTHROPIC_API_KEY`, o app roda no modo templates, sem custo de IA.
+
+> [!WARNING]
+> O rate limit é em memória, por instância. Em serverless ele é aproximado: se ativar a IA em produção, mantenha um `GENERATE_DAILY_LIMIT` conservador ou use o firewall da Vercel.
 
 ## 💡 Scripts
 
@@ -96,6 +109,7 @@ Acesse http://localhost:5173.
 | `npm run dev` | API + frontend em modo desenvolvimento |
 | `npm run build` | Typecheck + build de produção em `dist/` |
 | `npm start` | Servidor de produção (API + arquivos estáticos com CSP) |
+| `npm run build:vercel` | Build para a Vercel (Build Output API) |
 | `npm test` | Suíte de testes (Vitest) |
 | `npm run typecheck` | Verificação de tipos |
 | `npm run lint` | ESLint |
@@ -106,6 +120,8 @@ Acesse http://localhost:5173.
 - **SSRF**: só `github.com/<owner>/<repo>` é aceito; as URLs são sempre montadas contra `api.github.com` com segmentos codificados.
 - **Abuso**: rate limit por IP (10 análises e 10 gerações por minuto, IPv6 agrupado por /64), orçamento diário global de gerações, limite de corpo de 512 KB, validação com Zod e bloqueio de POSTs cross-site (`Content-Type` JSON obrigatório + checagem de `Origin`/`Sec-Fetch-Site`).
 - **Prompt injection**: o conteúdo do repositório vai isolado em `<repository>` e o system prompt instrui o modelo a tratá-lo como dado.
+- **Sessão**: cookie `httpOnly`, `Secure` e `SameSite=Lax`, cifrado com AES-256-GCM. O token do GitHub nunca chega ao JavaScript do navegador. O OAuth usa `state` contra CSRF e pede só o escopo `public_repo`.
+- **Supabase**: a tabela tem RLS ativo e privilégios revogados de `anon`/`authenticated`. Só o backend, com a chave secreta, acessa, e sempre filtrando pelo usuário da sessão.
 - **Cabeçalhos**: CSP e demais cabeçalhos de segurança via `hono/secure-headers` em todas as respostas.
 
 ## 📁 Estrutura do projeto

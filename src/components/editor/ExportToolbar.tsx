@@ -1,4 +1,4 @@
-import { Check, Copy, Download, History, ImagePlus, RefreshCw, Shield, Square } from "lucide-react";
+import { Check, Copy, Download, GitPullRequest, History, ImagePlus, RefreshCw, Shield, Square } from "lucide-react";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { downloadMarkdown } from "../../lib/download";
 import { Button } from "../common/Button";
@@ -12,10 +12,12 @@ interface Props {
   onOpenBadges: () => void;
   onOpenBanner: () => void;
   onOpenHistory: () => void;
+  /** Ausente quando o login com GitHub não está configurado no servidor. */
+  onOpenPublish?: () => void;
   onNotify: (message: string) => void;
 }
 
-export function ExportToolbar({ markdown, streaming, canGenerate, onRegenerate, onCancel, onOpenBadges, onOpenBanner, onOpenHistory, onNotify }: Props) {
+export function ExportToolbar({ markdown, streaming, canGenerate, onRegenerate, onCancel, onOpenBadges, onOpenBanner, onOpenHistory, onOpenPublish, onNotify }: Props) {
   const { copied, copy } = useCopyToClipboard();
   const empty = !markdown.trim();
 
@@ -50,6 +52,11 @@ export function ExportToolbar({ markdown, streaming, canGenerate, onRegenerate, 
       <Button size="sm" variant="primary" icon={<Download className="size-4" />} disabled={empty} onClick={() => downloadMarkdown(markdown)}>
         README.md
       </Button>
+      {onOpenPublish && (
+        <Button size="sm" icon={<GitPullRequest className="size-4" />} disabled={empty || streaming} onClick={onOpenPublish}>
+          Publicar
+        </Button>
+      )}
     </div>
   );
 }

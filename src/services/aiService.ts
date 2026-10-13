@@ -88,3 +88,41 @@ export function stripErrorMarker(text: string): { text: string; error?: string }
   }
   return { text: text.slice(0, idx).trimEnd(), error };
 }
+
+// ---------------------------------------------------------------- conta / GitHub / histórico
+
+export interface AuthUser {
+  login: string;
+  avatar: string;
+}
+
+const jsonInit = (method: string, body?: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: body === undefined ? undefined : JSON.stringify(body),
+  credentials: "same-origin",
+});
+
+async function request<T>(url: string, init: RequestInit | undefined, fetchImpl: typeof fetch): Promise<T> {
+  const res = await fetchImpl(url, init);
+  if (!res.ok) throw await readError(res);
+  return (await res.json()) as T;
+}
+
+export async function fetchMe(fetchImpl: typeof fetch = fetch): Promise<AuthUser | null> {
+  const res = await fetchImpl("/api/auth/me", { credentials: "same-origin" });
+  if (!res.ok) return null;
+  const body = (await res.json()) as { authenticated: boolean; user?: AuthUser };
+  return body.authenticated && body.user ? body.user : null;
+}
+
+export const logout = (fetchImpl: typeof fetch = fetch) => request<{ ok: true }>("/api/auth/logout", jsonInit("POST", {}), fetchImpl);
+
+export interface PublishResult {
+  url: string;
+  number: number;
+  branch: string;
+}
+
+export const publishReadme = (input: { repo: string; markdown: string; bannerSvg?: string }, fetchImpl: typeof fetch = fetch) =>
+  request<PublishResult>("/api/github/publish", jsonInit("POST", input), fetchImpl);

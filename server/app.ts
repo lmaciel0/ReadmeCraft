@@ -8,6 +8,7 @@ import { buildReadme } from "../src/services/readmeBuilder";
 import type { RepoMetadata, RepoRef } from "../src/types/github";
 import type { GeneratorEngine, GeneratorOptions, HealthStatus } from "../src/types/readme";
 import { generateRequestSchema } from "../src/types/schemas";
+import { registerAccountRoutes, type AccountDeps } from "./accountRoutes";
 import { createRateLimiter, createTtlCache } from "./rateLimit";
 
 /** Marcador anexado ao stream quando um erro ocorre depois do início da resposta. */
@@ -24,6 +25,8 @@ export interface AppDeps {
   /** Atraso entre blocos no modo template (efeito de streaming). */
   templateChunkDelayMs?: number;
   getClientIp?: (c: Context) => string;
+  /** Login com GitHub, publicação via PR e histórico remoto (opcionais). */
+  account?: Omit<AccountDeps, "publishLimit"> | null;
 }
 
 const analyzeSchema = z.object({ url: z.string().min(1).max(300) });
@@ -35,6 +38,7 @@ export function createApp({
   rateLimits = { analyzePerMin: 10, generatePerMin: 10, generatePerDay: 500 },
   templateChunkDelayMs = 15,
   getClientIp = () => "local",
+  account = null,
 }: AppDeps = {}) {
   const app = new Hono();
   const analyzeLimiter = createRateLimiter({ limit: rateLimits.analyzePerMin, windowMs: 60_000 });
@@ -79,8 +83,10 @@ export function createApp({
     c.header("Cache-Control", "no-store");
   });
   // Bloqueia POSTs cross-site "simples" (text/plain, no-cors) que usariam a API como proxy gratuito do Claude.
-  app.on("POST", "/api/*", async (c, next) => {
-    if (!c.req.header("content-type")?.toLowerCase().startsWith("application/json")) {
+  // Bloqueia requisições cross-site que mudam estado: POST "simples" (text/plain, no-cors)
+  // usaria a API como proxy gratuito do Claude; com sessão, também evita CSRF.
+  app.on(["POST", "PUT", "PATCH", "DELETE"], "/api/*", async (c, next) => {
+    if (c.req.method === "POST" && !c.req.header("content-type")?.toLowerCase().startsWith("application/json")) {
       return c.json({ error: "Content-Type deve ser application/json." }, 415);
     }
     const site = c.req.header("sec-fetch-site");
@@ -103,8 +109,18 @@ export function createApp({
 
   app.get("/api/health", (c) =>
     // Não expõe se há GITHUB_TOKEN configurado (só o necessário para a UI).
-    c.json<HealthStatus>({ ok: true, ai: Boolean(aiStreamer), model: aiStreamer ? model : null }),
+    c.json<HealthStatus>({
+      ok: true,
+      ai: Boolean(aiStreamer),
+      model: aiStreamer ? model : null,
+      features: { login: Boolean(account), history: Boolean(account?.history) },
+    }),
   );
+
+  if (account) {
+    const publishLimiter = createRateLimiter({ limit: 5, windowMs: 60_000 });
+    registerAccountRoutes(app, { ...account, publishLimit: limit(publishLimiter) });
+  }
 
   app.post("/api/repo/analyze", limit(analyzeLimiter), async (c) => {
     const parsed = analyzeSchema.safeParse(await c.req.json().catch(() => null));
