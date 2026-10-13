@@ -23,8 +23,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # Sem scripts de ciclo de vida: dependências não executam código na instalação.
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npx vite build
+      - run: npm run build
