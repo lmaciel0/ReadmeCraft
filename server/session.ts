@@ -26,9 +26,17 @@ const b64url = {
   decode: (text: string) => new Uint8Array(Buffer.from(text, "base64url")),
 };
 
+/** HKDF-SHA-256: separa a chave de sessão do segredo bruto. A entropia continua vindo do SESSION_SECRET. */
 async function deriveKey(secret: string): Promise<CryptoKey> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
-  return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt", "decrypt"]);
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey("raw", enc.encode(secret), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: enc.encode("readmecraft/session/v2"), info: enc.encode("aes-256-gcm") },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
 }
 
 export function createSessionCodec(secret: string, now: () => number = Date.now) {
