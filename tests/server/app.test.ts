@@ -198,6 +198,14 @@ describe("proteções contra abuso cross-site", () => {
     expect((await send()).status).toBe(429);
   });
 
+  it("requisições inválidas não consomem o orçamento diário", async () => {
+    let ip = 0;
+    const app = createApp({ templateChunkDelayMs: 0, rateLimits: { analyzePerMin: 10, generatePerMin: 10, generatePerDay: 1 }, getClientIp: () => `ip-${ip++}` });
+    for (let i = 0; i < 5; i++) expect((await app.request("/api/generate", json({}))).status).toBe(400);
+    expect((await app.request("/api/generate", json({ metadata: meta, options: defaultOptions }))).status).toBe(200);
+    expect((await app.request("/api/generate", json({ metadata: meta, options: defaultOptions }))).status).toBe(429);
+  });
+
   it("envia cabeçalhos de segurança também nas respostas da API", async () => {
     const res = await createApp().request("/api/health");
     expect(res.headers.get("content-security-policy")).toContain("form-action 'none'");

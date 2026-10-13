@@ -41,7 +41,7 @@ const CSP = [
   "img-src 'self' data: https:",
   "connect-src 'self'",
   "object-src 'none'",
-  "form-action 'self' https://github.com",
+  "form-action 'none'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
 ].join("; ");

@@ -5,6 +5,7 @@ import { clientIpResolver } from "../../server/fromEnv";
 import { createGithubPublisher } from "../../server/githubPublisher";
 import type { UserHistoryStore } from "../../server/historyRemote";
 import { SESSION_COOKIE, STATE_COOKIE, createSessionCodec } from "../../server/session";
+import { isSafeSvg } from "../../server/svgGuard";
 import type { HistoryEntry } from "../../src/services/historyStore";
 
 const SECRET = "x".repeat(40);
@@ -115,9 +116,31 @@ describe("OAuth do GitHub", () => {
     expect(await me.json()).toEqual({ authenticated: true, user: { login: "octo", avatar: "https://a/1" } });
   });
 
-  it("logout limpa o cookie", async () => {
-    const res = await setup().app.request("/api/auth/logout", json({}, { Cookie: await sessionCookie() }));
+  it("logout limpa o cookie e revoga o token no GitHub", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(null, { status: 204 }));
+    const { app } = setup({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const res = await app.request("/api/auth/logout", json({}, { Cookie: await sessionCookie() }));
     expect(res.headers.get("set-cookie")).toMatch(new RegExp(`${SESSION_COOKIE}=;.*Max-Age=0`, "i"));
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.github.com/applications/cid/token");
+    expect(init).toMatchObject({ method: "DELETE" });
+    expect(JSON.parse(String(init!.body))).toEqual({ access_token: "gho_test" });
+    expect((init!.headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from("cid:csecret").toString("base64")}`);
+  });
+
+  it("logout conclui mesmo se a revogação falhar, e sem sessão não chama o GitHub", async () => {
+    const failing = vi.fn(async () => {
+      throw new Error("rede");
+    });
+    const a = setup({ fetchImpl: failing as unknown as typeof fetch });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await a.app.request("/api/auth/logout", json({}, { Cookie: await sessionCookie() }));
+    expect(await res.json()).toEqual({ ok: true });
+
+    const none = vi.fn();
+    const b = setup({ fetchImpl: none as unknown as typeof fetch });
+    await b.app.request("/api/auth/logout", json({}));
+    expect(none).not.toHaveBeenCalled();
   });
 });
 
@@ -143,6 +166,24 @@ describe("publicação via PR", () => {
     const cookie = await sessionCookie();
     expect((await app.request("/api/github/publish", json({ repo: "https://evil.com/a/b", markdown: "x" }, { Cookie: cookie }))).status).toBe(400);
     expect((await app.request("/api/github/publish", json({ repo: "a/b", markdown: "x", bannerSvg: "<script>" }, { Cookie: cookie }))).status).toBe(400);
+  });
+
+  it("recusa SVG com conteúdo ativo ou referências externas", async () => {
+    const cookie = await sessionCookie();
+    const bad = [
+      '<svg onload="alert(1)"></svg>',
+      "<svg><script>alert(1)</script></svg>",
+      "<svg><foreignObject><div/></foreignObject></svg>",
+      '<svg><a href="javascript:alert(1)"><text>x</text></a></svg>',
+      '<svg><image href="https://evil.example/t.png"/></svg>',
+      '<svg><rect fill="url(https://evil.example/x)"/></svg>',
+    ];
+    for (const bannerSvg of bad) {
+      const { app, publish } = setup(); // app novo: o limite de 5 publicações/min é por instância
+      const res = await app.request("/api/github/publish", json({ repo: "a/b", markdown: "x", bannerSvg }, { Cookie: cookie }));
+      expect(res.status, bannerSvg).toBe(400);
+      expect(publish).not.toHaveBeenCalled();
+    }
   });
 
   it("bloqueia publicação cross-site", async () => {
@@ -179,9 +220,46 @@ describe("histórico remoto", () => {
     expect((await app.request("/api/history")).status).toBe(401);
   });
 
+  it("limita gravações por usuário, sem afetar outros usuários", async () => {
+    const { app } = setup();
+    const alice = await sessionCookie(1);
+    for (let i = 0; i < 30; i++) expect((await app.request("/api/history", json(entry, { Cookie: alice }))).status).toBe(201);
+    const blocked = await app.request("/api/history", json(entry, { Cookie: alice }));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("retry-after")).toBeTruthy();
+    expect((await app.request("/api/history", json(entry, { Cookie: await sessionCookie(2) }))).status).toBe(201);
+  });
+
   it("sem Supabase configurado, as rotas não existem", async () => {
     const { app } = setup({ history: null });
     expect((await app.request("/api/history", { headers: { Cookie: await sessionCookie() } })).status).toBe(404);
+  });
+});
+
+describe("isSafeSvg", () => {
+  it("aceita o formato do banner gerado e SVG vazio autofechado", async () => {
+    const { buildBannerSvg } = await import("../../src/services/bannerGenerator");
+    for (const variant of ["showcase", "minimalist", "enterprise", "opensource"] as const) {
+      expect(isSafeSvg(buildBannerSvg({ title: "App <&>", tagline: 'diz "oi" onload=x', techs: ["TypeScript", "React"], variant }))).toBe(true);
+    }
+    expect(isSafeSvg("<svg/>")).toBe(true);
+  });
+
+  it("recusa SVG sem fechamento ou fora do formato", () => {
+    expect(isSafeSvg("<svg><rect>")).toBe(false);
+    expect(isSafeSvg("<html></html>")).toBe(false);
+  });
+
+  it("recusa conteúdo fora da raiz, comentários e entidades que escondem url()/handlers", () => {
+    expect(isSafeSvg("<svg></svg><rect/>")).toBe(false);
+    expect(isSafeSvg("<svg></svg><script>alert(1)</script>")).toBe(false);
+    expect(isSafeSvg("<svg/><svg/>")).toBe(false);
+    expect(isSafeSvg("<svg><!-- x --></svg>")).toBe(false);
+    expect(isSafeSvg("<svg><![CDATA[x]]></svg>")).toBe(false);
+    expect(isSafeSvg('<svg><rect fill="u&#114;l(https://evil.example/x)"/></svg>')).toBe(false);
+    expect(isSafeSvg('<svg><rect a=">" onload="x"/></svg>')).toBe(false);
+    expect(isSafeSvg('<svg><rect style="fill:red"/></svg>')).toBe(false);
+    expect(isSafeSvg('<svg><rect fill="url(#bg)"/></svg>')).toBe(true);
   });
 });
 

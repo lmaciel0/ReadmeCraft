@@ -4,6 +4,8 @@ import { GithubError, parseGithubUrl } from "../src/services/githubService";
 import { TEMPLATE_IDS } from "../src/types/readme";
 import { createGithubPublisher, type PublishFile } from "./githubPublisher";
 import type { UserHistoryStore } from "./historyRemote";
+import { createRateLimiter } from "./rateLimit";
+import { isSafeSvg } from "./svgGuard";
 import { clearSession, readSession, takeOAuthState, writeOAuthState, writeSession, type Session, type SessionCodec } from "./session";
 
 export interface OAuthConfig {
@@ -22,6 +24,8 @@ export interface AccountDeps {
   publisher?: (token: string) => ReturnType<typeof createGithubPublisher>;
   /** Middleware de rate limit aplicado à publicação. */
   publishLimit: (c: Context, next: () => Promise<void>) => Promise<Response | void>;
+  /** Middleware de rate limit (por IP) aplicado às rotas /api/auth/*. */
+  authLimit: (c: Context, next: () => Promise<void>) => Promise<Response | void>;
 }
 
 /** Escopo mínimo para criar branch, commit e PR em repositórios públicos. */
@@ -31,8 +35,11 @@ export const BANNER_REPO_PATH = "assets/banner.svg";
 const publishSchema = z.object({
   repo: z.string().min(1).max(300),
   markdown: z.string().min(1).max(200_000),
-  bannerSvg: z.string().max(100_000).startsWith("<svg").optional(),
+  bannerSvg: z.string().max(100_000).refine(isSafeSvg, "SVG inválido").optional(),
 });
+
+/** Teto de versões guardadas por usuário e de gravações por minuto. */
+export const MAX_HISTORY_WRITES_PER_MIN = 30;
 
 const historySchema = z.object({
   title: z.string().min(1).max(200),
@@ -47,6 +54,28 @@ export function registerAccountRoutes(app: Hono, deps: AccountDeps) {
   const publisherFor = deps.publisher ?? ((token: string) => createGithubPublisher(token, { fetchImpl }));
   const redirectUri = `${oauth.appUrl.replace(/\/$/, "")}/api/auth/callback`;
 
+  const revokeToken = async (token: string) => {
+    try {
+      const res = await fetchImpl(`https://api.github.com/applications/${encodeURIComponent(oauth.clientId)}/token`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${oauth.clientId}:${oauth.clientSecret}`).toString("base64")}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+          "User-Agent": "ReadmeCraft",
+        },
+        body: JSON.stringify({ access_token: token }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      // 204 = revogado; 404 = já inválido. Qualquer outro status só é registrado.
+      if (res.status !== 204 && res.status !== 404) console.error("[auth:logout] revogação falhou:", res.status);
+    } catch (err) {
+      console.error("[auth:logout]", err instanceof Error ? err.message : err);
+    }
+  };
+
+  const historyWriteLimiter = createRateLimiter({ limit: MAX_HISTORY_WRITES_PER_MIN, windowMs: 60_000 });
+
   const withSession = (handler: (c: Context, session: Session) => Promise<Response>) => async (c: Context) => {
     const session = await readSession(c, codec);
     if (!session) return c.json({ error: "Entre com o GitHub para continuar." }, 401);
@@ -58,7 +87,7 @@ export function registerAccountRoutes(app: Hono, deps: AccountDeps) {
     return c.json(session ? { authenticated: true, user: { login: session.login, avatar: session.avatar } } : { authenticated: false });
   });
 
-  app.get("/api/auth/login", (c) => {
+  app.get("/api/auth/login", deps.authLimit, (c) => {
     const state = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
     writeOAuthState(c, state, secureCookies);
     const url = new URL("https://github.com/login/oauth/authorize");
@@ -66,7 +95,7 @@ export function registerAccountRoutes(app: Hono, deps: AccountDeps) {
     return c.redirect(url.toString());
   });
 
-  app.get("/api/auth/callback", async (c) => {
+  app.get("/api/auth/callback", deps.authLimit, async (c) => {
     const fail = (code: string) => c.redirect(`/?auth_error=${code}`);
     const expected = takeOAuthState(c, secureCookies);
     const { code, state, error } = c.req.query();
@@ -98,8 +127,11 @@ export function registerAccountRoutes(app: Hono, deps: AccountDeps) {
     }
   });
 
-  app.post("/api/auth/logout", (c) => {
+  app.post("/api/auth/logout", deps.authLimit, async (c) => {
+    const session = await readSession(c, codec);
     clearSession(c, secureCookies);
+    // Revoga o token no GitHub: o cookie cifrado, mesmo copiado, deixa de dar acesso a repositórios.
+    if (session) await revokeToken(session.token);
     return c.json({ ok: true });
   });
 
@@ -151,6 +183,11 @@ export function registerAccountRoutes(app: Hono, deps: AccountDeps) {
   app.post(
     "/api/history",
     withSession(async (c, s) => {
+      const rate = historyWriteLimiter(String(s.uid));
+      if (!rate.allowed) {
+        c.header("Retry-After", String(rate.retryAfterSec));
+        return c.json({ error: `Muitas gravações. Tente novamente em ${rate.retryAfterSec}s.` }, 429);
+      }
       const parsed = historySchema.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: "Versão inválida." }, 400);
       try {

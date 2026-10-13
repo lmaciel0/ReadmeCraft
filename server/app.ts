@@ -26,7 +26,7 @@ export interface AppDeps {
   templateChunkDelayMs?: number;
   getClientIp?: (c: Context) => string;
   /** Login com GitHub, publicação via PR e histórico remoto (opcionais). */
-  account?: Omit<AccountDeps, "publishLimit"> | null;
+  account?: Omit<AccountDeps, "publishLimit" | "authLimit"> | null;
 }
 
 const analyzeSchema = z.object({ url: z.string().min(1).max(300) });
@@ -119,7 +119,8 @@ export function createApp({
 
   if (account) {
     const publishLimiter = createRateLimiter({ limit: 5, windowMs: 60_000 });
-    registerAccountRoutes(app, { ...account, publishLimit: limit(publishLimiter) });
+    const authLimiter = createRateLimiter({ limit: 20, windowMs: 60_000 });
+    registerAccountRoutes(app, { ...account, publishLimit: limit(publishLimiter), authLimit: limit(authLimiter) });
   }
 
   app.post("/api/repo/analyze", limit(analyzeLimiter), async (c) => {
@@ -142,16 +143,13 @@ export function createApp({
     }
   });
 
-  const globalBudget = async (c: Context, next: () => Promise<void>) => {
-    if (!dailyBudget("global").allowed) return c.json({ error: "Limite diário de gerações do servidor atingido." }, 429);
-    await next();
-  };
-
-  app.post("/api/generate", limit(generateLimiter), globalBudget, async (c) => {
+  app.post("/api/generate", limit(generateLimiter), async (c) => {
     const parsed = generateRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "Requisição inválida.", issues: parsed.error.issues.slice(0, 5).map((i) => i.path.join(".")) }, 400);
     }
+    // Só requisições válidas gastam o orçamento: corpo inválido não pode esgotá-lo para todos.
+    if (!dailyBudget("global").allowed) return c.json({ error: "Limite diário de gerações do servidor atingido." }, 429);
     const { metadata, options } = parsed.data as { metadata: RepoMetadata; options: GeneratorOptions };
     const signal = c.req.raw.signal;
 

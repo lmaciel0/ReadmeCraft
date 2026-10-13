@@ -19,6 +19,9 @@ interface Row {
   created_at: string;
 }
 
+/** Versões guardadas por usuário: ao salvar, as mais antigas além do teto são apagadas. */
+export const MAX_ENTRIES_PER_USER = 100;
+
 const COLUMNS = "id, title, repo, template, origin, markdown, created_at";
 
 const toEntry = (r: Row): HistoryEntry => ({
@@ -42,6 +45,19 @@ export function createSupabaseHistory(url: string, secretKey: string): UserHisto
     if (error) throw new Error(`Supabase (${op}): ${error.message}`);
   };
 
+  async function pruneOld(userId: number) {
+    const { data, error } = await table()
+      .select("id")
+      .eq("github_user_id", userId)
+      .order("created_at", { ascending: false })
+      .range(MAX_ENTRIES_PER_USER, MAX_ENTRIES_PER_USER + 999);
+    fail("prune", error);
+    const stale = (data as { id: string }[]).map((r) => r.id);
+    if (stale.length === 0) return;
+    const { error: delError } = await table().delete().eq("github_user_id", userId).in("id", stale);
+    fail("prune", delError);
+  }
+
   return {
     async list(userId) {
       const { data, error } = await table().select(COLUMNS).eq("github_user_id", userId).order("created_at", { ascending: false }).limit(50);
@@ -54,6 +70,7 @@ export function createSupabaseHistory(url: string, secretKey: string): UserHisto
         .select(COLUMNS)
         .single();
       fail("save", error);
+      await pruneOld(userId);
       return toEntry(data as Row);
     },
     async remove(userId, id) {
