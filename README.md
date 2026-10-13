@@ -4,6 +4,7 @@
 
 **Gerador inteligente de README para o GitHub, projetado para transformar repositórios em apresentações visuais de alto impacto.**
 
+[![CI](https://img.shields.io/github/actions/workflow/status/lmaciel0/ReadmeCraft/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/lmaciel0/ReadmeCraft/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
