@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Moon, Sun } from "lucide-react";
 import type { HealthState } from "../../hooks/useHealth";
 import type { Theme } from "../../hooks/useTheme";
@@ -13,6 +14,7 @@ interface Props {
   health: HealthState;
   theme: Theme;
   onToggleTheme: () => void;
+  account?: ReactNode;
 }
 
 function StatusPill({ health }: { health: HealthState }) {
@@ -32,7 +34,7 @@ function StatusPill({ health }: { health: HealthState }) {
   );
 }
 
-export function Header({ template, onTemplateChange, health, theme, onToggleTheme }: Props) {
+export function Header({ template, onTemplateChange, health, theme, onToggleTheme, account }: Props) {
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur lg:px-6">
       <div className="flex items-center gap-2.5">
@@ -76,6 +78,7 @@ export function Header({ template, onTemplateChange, health, theme, onToggleThem
 
       <div className="ml-auto flex items-center gap-2">
         <StatusPill health={health} />
+        {account}
         <button
           type="button"
           onClick={onToggleTheme}

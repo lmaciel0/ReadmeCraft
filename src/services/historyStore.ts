@@ -28,6 +28,63 @@ export interface HistoryRepository {
   clear(): void;
 }
 
+/** Variante assíncrona do contrato, usada pela UI (o histórico remoto vive no servidor). */
+export interface AsyncHistoryRepository {
+  list(): Promise<HistoryEntry[]>;
+  save(entry: NewHistoryEntry): Promise<HistoryEntry | null>;
+  remove(id: string): Promise<void>;
+  clear(): Promise<void>;
+}
+
+export function toAsync(repo: HistoryRepository): AsyncHistoryRepository {
+  return {
+    list: async () => repo.list(),
+    save: async (entry) => repo.save(entry),
+    remove: async (id) => repo.remove(id),
+    clear: async () => repo.clear(),
+  };
+}
+
+/**
+ * Histórico na conta do usuário (Supabase, via backend). Evita gravar duplicata
+ * consecutiva comparando com a versão mais recente já carregada.
+ */
+export function createRemoteHistory(fetchImpl: typeof fetch = (...args) => fetch(...args)): AsyncHistoryRepository {
+  let latest: string | undefined;
+  const call = async <T>(url: string, method = "GET", body?: unknown): Promise<T> => {
+    const res = await fetchImpl(url, {
+      method,
+      credentials: "same-origin",
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    if (!res.ok) throw new Error(data?.error ?? `Erro HTTP ${res.status}`);
+    return data as T;
+  };
+
+  return {
+    async list() {
+      const { entries } = await call<{ entries: HistoryEntry[] }>("/api/history");
+      latest = entries[0]?.markdown;
+      return entries;
+    },
+    async save(entry) {
+      if (!entry.markdown.trim() || entry.markdown === latest) return null;
+      const { entry: saved } = await call<{ entry: HistoryEntry }>("/api/history", "POST", entry);
+      latest = saved.markdown;
+      return saved;
+    },
+    async remove(id) {
+      await call(`/api/history/${encodeURIComponent(id)}`, "DELETE");
+    },
+    async clear() {
+      await call("/api/history", "DELETE");
+      latest = undefined;
+    },
+  };
+}
+
 export const HISTORY_KEY = "rc:history";
 export const HISTORY_MAX = 20;
 

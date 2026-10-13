@@ -106,3 +106,22 @@ describe("historyStore (local)", () => {
     expect(repo.list()).toHaveLength(1);
   });
 });
+
+describe("historyStore (remoto)", () => {
+  it("lista, evita duplicata consecutiva e repassa erros do servidor", async () => {
+    const { createRemoteHistory } = await import("../../src/services/historyStore");
+    const calls: { url: string; method: string }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method ?? "GET" });
+      if (url === "/api/history" && (init?.method ?? "GET") === "GET") return new Response(JSON.stringify({ entries: [{ id: "1", markdown: "# a", createdAt: 1, title: "t", template: "showcase", origin: "claude" }] }));
+      if (url === "/api/history" && init?.method === "POST") return new Response(JSON.stringify({ entry: { id: "2", markdown: "# b", createdAt: 2, title: "t", template: "showcase", origin: "manual" } }), { status: 201 });
+      return new Response(JSON.stringify({ error: "Falha ao acessar o histórico." }), { status: 502 });
+    }) as unknown as typeof fetch;
+    const repo = createRemoteHistory(fetchImpl);
+    expect(await repo.list()).toHaveLength(1);
+    expect(await repo.save(entry("# a"))).toBeNull();
+    expect((await repo.save(entry("# b")))?.id).toBe("2");
+    await expect(repo.remove("1")).rejects.toThrow("Falha ao acessar o histórico.");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+});

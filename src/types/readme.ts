@@ -51,4 +51,6 @@ export interface HealthStatus {
   ok: boolean;
   ai: boolean;
   model: string | null;
+  /** Recursos que dependem de configuração no servidor (OAuth do GitHub, Supabase). */
+  features: { login: boolean; history: boolean };
 }

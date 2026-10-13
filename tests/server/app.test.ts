@@ -11,13 +11,13 @@ const meta = makeNodeMetadata();
 describe("GET /api/health", () => {
   it("informa modo template quando não há IA", async () => {
     const res = await createApp().request("/api/health");
-    expect(await res.json()).toEqual({ ok: true, ai: false, model: null });
+    expect(await res.json()).toEqual({ ok: true, ai: false, model: null, features: { login: false, history: false } });
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
   it("informa o modelo quando a IA está ativa", async () => {
     const app = createApp({ aiStreamer: async function* () {}, model: "claude-opus-5-5" });
-    expect(await (await app.request("/api/health")).json()).toEqual({ ok: true, ai: true, model: "claude-opus-5-5" });
+    expect(await (await app.request("/api/health")).json()).toEqual({ ok: true, ai: true, model: "claude-opus-5-5", features: { login: false, history: false } });
   });
 });
 

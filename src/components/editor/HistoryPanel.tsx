@@ -6,6 +6,9 @@ import type { HistoryEntry } from "../../services/historyStore";
 import { Button } from "../common/Button";
 
 interface Props {
+  /** true quando as versões ficam na conta do usuário (Supabase), não no navegador. */
+  remote?: boolean;
+  error?: string | null;
   entries: HistoryEntry[];
   canSaveCurrent: boolean;
   onSaveCurrent: () => void;
@@ -17,19 +20,25 @@ interface Props {
 const ORIGIN_LABEL: Record<HistoryEntry["origin"], string> = { claude: "Claude", template: "Templates", manual: "Manual" };
 const dateFmt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
-export function HistoryPanel({ entries, canSaveCurrent, onSaveCurrent, onRestore, onRemove, onClear }: Props) {
+export function HistoryPanel({ remote = false, error, entries, canSaveCurrent, onSaveCurrent, onRestore, onRemove, onClear }: Props) {
   const [confirmClear, setConfirmClear] = useState(false);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted">
-          Versões salvas neste navegador (até 20). Cada geração concluída é salva automaticamente.
+          {remote ? "Versões salvas na sua conta (até 50)." : "Versões salvas neste navegador (até 20)."} Cada geração concluída é salva automaticamente.
         </p>
         <Button size="sm" icon={<Save className="size-4" />} onClick={onSaveCurrent} disabled={!canSaveCurrent}>
           Salvar versão atual
         </Button>
       </div>
+
+      {error && (
+        <p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          {error}
+        </p>
+      )}
 
       {entries.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-muted">Nenhuma versão salva ainda.</p>
