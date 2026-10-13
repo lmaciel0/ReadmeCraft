@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Gerador inteligente de README para o GitHub com IA, live preview e templates.",
   "type": "module",
+  "engines": {
+    "node": "^22.13.0 || >=24"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",

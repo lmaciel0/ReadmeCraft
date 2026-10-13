@@ -1,4 +1,5 @@
 import { createContext, memo, useContext, useMemo, type ComponentProps } from "react";
+import { Check, Copy } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
@@ -10,6 +11,7 @@ import githubDark from "github-markdown-css/github-markdown-dark.css?inline";
 import githubLight from "github-markdown-css/github-markdown-light.css?inline";
 import hljsDark from "highlight.js/styles/github-dark.css?inline";
 import hljsLight from "highlight.js/styles/github.css?inline";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import type { Theme } from "../../hooks/useTheme";
 import { remarkGithubAlerts, resolveAnchor, sanitizeSchema } from "../../services/markdownSanitizer";
 import { MermaidDiagram } from "./MermaidDiagram";
@@ -54,11 +56,31 @@ function Img({ node: _node, alt = "", src, ...rest }: ComponentProps<"img"> & { 
   return <img {...rest} src={local ?? src} alt={alt} loading="lazy" referrerPolicy="no-referrer" />;
 }
 
+function CopyCodeButton({ text }: { text: string }) {
+  const { copied, copy } = useCopyToClipboard();
+  const Icon = copied ? Check : Copy;
+  return (
+    <button
+      type="button"
+      onClick={() => void copy(text)}
+      aria-label={copied ? "Código copiado" : "Copiar código"}
+      className="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md border border-neutral-500/40 bg-neutral-500/10 text-neutral-400 opacity-0 transition-opacity hover:text-neutral-100 focus-visible:opacity-100 group-hover/code:opacity-100"
+    >
+      <Icon className="size-4" aria-hidden="true" />
+    </button>
+  );
+}
+
 function Pre({ node, children, ...rest }: ComponentProps<"pre"> & { node?: Element }) {
   const { theme, streaming } = useContext(PreviewContext);
   const source = mermaidSource(node);
   if (source !== null) return <MermaidDiagram code={source.trim()} theme={theme} debounceMs={streaming ? 900 : 250} />;
-  return <pre {...rest}>{children}</pre>;
+  return (
+    <div className="group/code relative">
+      <pre {...rest}>{children}</pre>
+      {node && <CopyCodeButton text={textContent(node.children)} />}
+    </div>
+  );
 }
 
 const components: Components = {

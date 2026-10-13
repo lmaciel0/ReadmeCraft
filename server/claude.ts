@@ -4,7 +4,7 @@ import { buildUserPrompt } from "../src/prompts/templatePrompts";
 import type { RepoMetadata } from "../src/types/github";
 import type { GeneratorOptions } from "../src/types/readme";
 
-export const DEFAULT_MODEL = "claude-opus-5-5";
+export const DEFAULT_MODEL = "claude-haiku-4-5";
 
 export class GenerationRefusedError extends Error {
   constructor(category: string | null | undefined) {
@@ -27,15 +27,11 @@ export async function* streamReadmeWithClaude(
   options: GeneratorOptions,
   { client = new Anthropic(), model = DEFAULT_MODEL, signal }: { client?: Anthropic; model?: string; signal?: AbortSignal } = {},
 ): AsyncGenerator<string> {
-  const stream = client.beta.messages.stream(
+  // Haiku 4.5 não suporta thinking adaptativo, `effort` nem fallback no servidor: requisição simples.
+  const stream = client.messages.stream(
     {
       model,
       max_tokens: options.onlySection ? 6000 : 16000,
-      // Fallback no servidor quando um classificador de segurança recusa (roteado por categoria).
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium" },
       system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: buildUserPrompt(metadata, options) }],
     },
