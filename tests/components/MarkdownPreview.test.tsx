@@ -117,3 +117,19 @@ describe("MarkdownPreview — assets locais", () => {
     expect(c.querySelector("img")?.getAttribute("src") ?? "").not.toContain("data:");
   });
 });
+
+describe("MarkdownPreview — copiar código", () => {
+  it("copia o texto do bloco e sinaliza o sucesso", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderMd("```ts\nconst x = 1;\n```");
+    screen.getByRole("button", { name: "Copiar código" }).click();
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("const x = 1;\n"));
+    expect(await screen.findByRole("button", { name: "Código copiado" })).not.toBeNull();
+  });
+
+  it("não adiciona botão em diagramas mermaid", () => {
+    renderMd("```mermaid\ngraph TD; A-->B\n```");
+    expect(screen.queryByRole("button", { name: "Copiar código" })).toBeNull();
+  });
+});

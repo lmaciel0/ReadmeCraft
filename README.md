@@ -41,7 +41,7 @@ flowchart LR
   web -->|"/api/repo/analyze"| api["API Hono"]
   web -->|"/api/generate (stream)"| api
   api --> gh["GitHub REST API"]
-  api --> claude["Claude API (Opus 5.5)"]
+  api --> claude["Claude API (Haiku 4.5)"]
   api --> tpl["Gerador por templates"]
   web --> local["Pasta local (lida no navegador)"]
 ```
@@ -82,7 +82,7 @@ Acesse http://localhost:5173.
 | Variável | Descrição | Obrigatória |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Chave da API da Anthropic. Sem ela, o app usa o gerador por templates. | Não |
-| `ANTHROPIC_MODEL` | Modelo Claude usado na geração (padrão `claude-opus-5-5`). | Não |
+| `ANTHROPIC_MODEL` | Modelo Claude usado na geração (padrão `claude-haiku-4-5`). | Não |
 | `GITHUB_TOKEN` | Token *fine-grained* somente leitura para repositórios públicos. | Não |
 | `PORT` | Porta da API (padrão `8787`). | Não |
 | `TRUST_PROXY` | `1` para usar `X-Forwarded-For` no rate limit (apenas atrás de proxy confiável). | Não |
